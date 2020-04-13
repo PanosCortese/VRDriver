@@ -1,0 +1,285 @@
+using System.Collections;
+using System.Collections.Generic;
+using UnityEngine;
+
+public class CarEngine : MonoBehaviour
+{
+    [Header("AI Path")]
+    public Transform path;
+    private List<Transform> nodes;
+    private int currentNode = 0;
+    public float minimumCheckDistance;
+
+    [Header("Wheel Colliders")]
+    public WheelCollider WheelFL;
+    public WheelCollider WheelFR;
+    public WheelCollider WheelRL;
+    public WheelCollider WheelRR;
+
+    [Header("Car Variables")]
+    public float maxSteerAngle = 45f;
+    public float targetSteerAngle;
+    public float maxMotorTorque = 80f;
+    public float maxBreakTorque = 150f;
+    public float currentSpeed;
+    public float turningSpeed;
+    public float maxSpeed;
+    public Vector3 centreofMass;
+    public bool isBraking = false;
+    public GameObject BrakingLights;
+    public float brakesTime;
+    public float brakesTime2;
+    public bool once;
+
+    [Header("Sensors")]
+    public float sensorLength;
+    public GameObject centralSensor;
+    public GameObject rightSensor;
+    public GameObject leftSensor;
+    public float sensorsAngle;
+    public float angleSensorLength;
+    private bool avoiding = false;
+
+    // Start is called before the first frame update
+    private void Start()
+    {
+        centreofMass = GetComponent<Rigidbody>().centerOfMass;
+        Transform[] pathTransforms = path.GetComponentsInChildren<Transform>();
+        nodes = new List<Transform>();
+
+        for (int i = 0; i < pathTransforms.Length; i++)
+        {
+            if (pathTransforms[i] != path.transform)
+            nodes.Add(pathTransforms[i]);
+        }
+    }
+
+    // Update is called once per frame
+    private void FixedUpdate()
+    {
+        Sensors();
+        ApplySteer();
+        Drive();
+        CheckWayPointDistance();
+        Braking();
+        LerpToSteerAngle();
+    }
+    private void ApplySteer()
+    {
+        if (avoiding) return;
+        Vector3 relativeVector = transform.InverseTransformPoint(nodes[currentNode].position);
+        float newSteer = (relativeVector.x / relativeVector.magnitude) * maxSteerAngle;
+        targetSteerAngle = newSteer;
+    }
+    private void Drive()
+    {
+        currentSpeed = 2 * Mathf.PI * WheelFL.radius * WheelFL.rpm * 60 / 1000;
+        if (currentSpeed < maxSpeed && !isBraking)
+        {
+            WheelFL.motorTorque = maxMotorTorque;
+            WheelFR.motorTorque = maxMotorTorque;
+        }
+        else
+        {
+            WheelFL.motorTorque = 0f;
+            WheelFR.motorTorque = 0f;
+        }
+    }
+    private void CheckWayPointDistance()
+    {
+        if (Vector3.Distance(transform.position, nodes[currentNode].position) < minimumCheckDistance)
+        {
+            if (currentNode == nodes.Count - 1)
+            {
+                currentNode = 0;
+            }
+            else
+            {
+                currentNode++;
+            }
+        }
+    }
+    private void Braking()
+    {
+        if (isBraking)
+        {
+            BrakingLights.SetActive(isBraking);
+            WheelRL.brakeTorque = maxBreakTorque;
+            WheelRR.brakeTorque = maxBreakTorque;
+        }
+        else
+        {
+            BrakingLights.SetActive(isBraking);
+            WheelRL.brakeTorque = 0;
+            WheelRR.brakeTorque = 0;
+        }
+
+    }
+    private void Sensors()
+    {
+        RaycastHit hit;
+        RaycastHit hitL;
+        RaycastHit hitR;
+        RaycastHit hitLA;
+        RaycastHit hitRA;
+        avoiding = false;
+        float avoidMultiplier = 0f;
+
+        //Right Sensor
+        if (Physics.Raycast(rightSensor.transform.position, transform.forward, out hitR, sensorLength))
+        {
+            if (!hitR.collider.CompareTag("Terrain"))
+            {
+                Debug.DrawLine(rightSensor.transform.position, hitR.point);
+                avoiding = true;
+                avoidMultiplier -= 1f;
+
+                brakesTime = Time.time + brakesTime;
+
+                if (once == false)
+                {
+                    brakesTime = Time.time + brakesTime;
+                    once = true;
+                }
+
+                if (Time.time > brakesTime)
+                {
+                    isBraking = true;
+                }
+                else
+                {
+                    isBraking = false;
+                    brakesTime = brakesTime2;
+                    once = false;
+                }
+                
+            }
+            else
+            {
+                isBraking = false;
+            }
+        }
+
+        //Right Sensor Angle
+        else if (Physics.Raycast(rightSensor.transform.position, Quaternion.AngleAxis(sensorsAngle, transform.up) * transform.forward, out hitRA, angleSensorLength))
+        {
+            if (!hitRA.collider.CompareTag("Terrain"))
+            {
+                Debug.DrawLine(rightSensor.transform.position, hitRA.point);
+                avoiding = true;
+                avoidMultiplier -= 0.5f;
+            }
+        }
+
+        //Left Sensor
+        if (Physics.Raycast(leftSensor.transform.position, transform.forward, out hitL, sensorLength))
+        {
+            if (!hitL.collider.CompareTag("Terrain"))
+            {
+                Debug.DrawLine(leftSensor.transform.position, hitL.point);
+                avoiding = true;
+                avoidMultiplier += 1f;
+                brakesTime = Time.time + brakesTime;
+
+                if (once == false)
+                {
+                    brakesTime = Time.time + brakesTime;
+                    once = true;
+                }
+
+                if (Time.time > brakesTime)
+                {
+                    isBraking = true;
+                }
+                else
+                {
+                    isBraking = false;
+                    brakesTime = brakesTime2;
+                    once = false;
+                }
+            }
+            else
+            {
+                isBraking = false;
+            }
+        }
+
+        //Left Sensor Angle
+        else if (Physics.Raycast(leftSensor.transform.position, Quaternion.AngleAxis(-sensorsAngle, transform.up) * transform.forward, out hitLA, angleSensorLength))
+        {
+            if (!hitLA.collider.CompareTag("Terrain"))
+            {
+                Debug.DrawLine(leftSensor.transform.position, hitLA.point);
+                avoiding = true;
+                avoidMultiplier += 0.5f;
+            }
+        }
+
+        //Centre Sensor
+        if (avoidMultiplier == 0f)
+        {
+            if (Physics.Raycast(centralSensor.transform.position, transform.forward, out hit, sensorLength))
+            {
+                if (!hit.collider.CompareTag("Terrain"))
+                {
+                    Debug.DrawLine(centralSensor.transform.position, hit.point);
+                    avoiding = true;
+                    brakesTime = Time.time + brakesTime;
+
+                    if (once == false)
+                    {
+                        brakesTime = Time.time + brakesTime;
+                        once = true;
+                    }
+
+                    if (Time.time > brakesTime)
+                    {
+                        isBraking = true;
+                    }
+                    else
+                    {
+                        isBraking = false;
+                        brakesTime = brakesTime2;
+                        once = false;
+                    }
+                }
+                else
+                {
+                    isBraking = false;
+                }
+                if (hit.normal.x < 0)
+                {
+                    avoidMultiplier = -1;
+                }
+                else
+                {
+                    avoidMultiplier = 1;
+                }
+
+            }
+        }
+
+        if (avoiding)
+        {
+            targetSteerAngle = maxSteerAngle * avoidMultiplier;
+        }
+    }
+
+    private void LerpToSteerAngle()
+    {
+        WheelFL.steerAngle = Mathf.Lerp(WheelFL.steerAngle, targetSteerAngle, Time.deltaTime * turningSpeed);
+        WheelFR.steerAngle = Mathf.Lerp(WheelFR.steerAngle, targetSteerAngle, Time.deltaTime * turningSpeed);
+    }
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        WheelFL.motorTorque = -maxMotorTorque;
+        WheelFL.motorTorque = -maxMotorTorque;
+        isBraking = false;
+    }
+    private void OnCollisionExit(Collision collision)
+    {
+        WheelFL.motorTorque = maxMotorTorque;
+        WheelFL.motorTorque = maxMotorTorque;
+    }
+}
